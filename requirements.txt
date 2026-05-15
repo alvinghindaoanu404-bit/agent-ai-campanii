@@ -1,0 +1,16 @@
+langchain==0.1.11
+langchain-openai==0.0.8
+python-dotenv==1.0.0
+pydantic==2.5.0
+selenium==4.15.2
+webdriver-manager==4.0.1
+google-auth-oauthlib==1.2.0
+google-auth-httplib2==0.2.0
+google-api-python-client==2.108.0
+python-dateutil==2.8.2
+aiohttp==3.9.1
+smtplib-async==0.1.0
+jinja2==3.1.2
+requests==2.31.0
+pytz==2023.3
+schedule==1.2.0
