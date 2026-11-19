@@ -44,12 +44,15 @@
     const out = [];
     for (const r of raw) {
       if (!r) continue;
-      const user = cleanUser(r.uniqueId ?? r.username ?? r.user ?? r.author ?? r.nickname ?? r.name);
+      if (r.errorCode) continue;
+      const nested = (typeof r.user === "object" && r.user) || (typeof r.author === "object" && r.author) || {};
+      const pick = (...v) => v.find((x) => typeof x === "string" && x.trim()) || "";
+      const user = cleanUser(pick(r.uniqueId, nested.uniqueId, r.username, nested.username, r.user, r.author, nested.nickname, r.nickname, r.name));
       if (!user) continue;
       out.push({
         user,
-        text: String(r.text ?? r.comment ?? r.content ?? "").trim(),
-        avatar: typeof (r.avatarThumbnail ?? r.avatar) === "string" ? (r.avatarThumbnail ?? r.avatar) : "",
+        text: pick(r.text, r.comment, r.content).trim(),
+        avatar: pick(r.avatarThumbnail, nested.avatarThumbnail, r.avatar, nested.avatar),
       });
     }
     return out;
@@ -171,50 +174,113 @@
     e.target.value = "";
   });
 
-  // ---------------- automatic extraction (via /api/comments) ----------------
+  // ---------------- automatic extraction (browser → Apify, no server) ----------------
+  // Actor: clockworks/tiktok-scraper. Comments land in a separate dataset whose link is
+  // in the video item's commentsDatasetUrl field.
+  const APIFY = "https://api.apify.com/v2";
+  const ACTOR = "clockworks~tiktok-scraper";
+  const TOKEN_KEY = "giveaway.apifyToken";
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  async function api(path, opts) {
-    const r = await fetch(path, opts);
+
+  const store = {
+    get() { try { return localStorage.getItem(TOKEN_KEY) || ""; } catch { return ""; } },
+    set(v) { try { v ? localStorage.setItem(TOKEN_KEY, v) : localStorage.removeItem(TOKEN_KEY); } catch {} },
+  };
+  function tokenUI() {
+    const has = $("token").value.trim().length > 0;
+    $("tokenState").textContent = has ? "setată ✓" : "lipsește";
+    $("tokenState").classList.toggle("ok", has);
+  }
+  $("token").value = store.get();
+  $("apifyBox").open = !$("token").value;
+  tokenUI();
+  $("token").addEventListener("input", () => { tokenUI(); if ($("remember").checked) store.set($("token").value.trim()); });
+  $("remember").addEventListener("change", () => store.set($("remember").checked ? $("token").value.trim() : ""));
+
+  async function apify(path, token, init = {}) {
+    let r;
+    try {
+      r = await fetch(APIFY + path, {
+        ...init,
+        headers: { Authorization: `Bearer ${token}`, ...(init.body ? { "Content-Type": "application/json" } : {}) },
+      });
+    } catch {
+      throw new Error("Nu pot contacta Apify (rețea sau blocat de browser). Încearcă din nou sau folosește varianta manuală.");
+    }
     const body = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(body.error || `Eroare server (${r.status})`);
+    if (r.status === 401 || r.status === 403) throw new Error("Cheia Apify nu e validă sau nu are acces. Verifică tokenul.");
+    if (r.status === 402) throw new Error("Contul Apify nu mai are credit. Adaugă credit sau scade numărul de comentarii.");
+    if (!r.ok) throw new Error(body?.error?.message || `Apify a răspuns cu ${r.status}`);
     return body;
+  }
+
+  function datasetIdFrom(item) {
+    const link = item && (item.commentsDatasetUrl || item.commentsDatasetURL || item.commentsDatasetUrlCsv || "");
+    const m = String(link).match(/datasets\/([A-Za-z0-9]+)/);
+    return m ? m[1] : null;
   }
 
   $("fetchBtn").addEventListener("click", async () => {
     const url = $("url").value.trim();
-    if (!/^https:\/\/(www\.|vm\.|vt\.|m\.)?tiktok\.com\//i.test(url)) {
+    const token = $("token").value.trim();
+    const max = Math.min(Math.max(parseInt($("maxComments").value, 10) || 3000, 50), 20000);
+    if (!/^https:\/\/(www\.|vm\.|vt\.|m\.)?tiktok\.com\/\S+$/i.test(url)) {
       setStatus("Lipește un link valid de TikTok (începe cu https://www.tiktok.com/ sau https://vm.tiktok.com/).", "err");
+      return;
+    }
+    if (!token) {
+      $("apifyBox").open = true;
+      $("token").focus();
+      setStatus("Pune mai întâi cheia Apify (API token).", "err");
       return;
     }
     const btn = $("fetchBtn");
     btn.disabled = true;
     try {
       setStatus("Pornesc extragerea", "", true);
-      const { runId } = await api("/api/comments", {
+      const run = await apify(`/acts/${ACTOR}/runs`, token, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url }),
+        body: JSON.stringify({
+          postURLs: [url],
+          resultsPerPage: 1,
+          commentsPerPost: max,
+          topLevelCommentsPerPost: max,
+          maxRepliesPerComment: 0,
+          scrapeRelatedVideos: false,
+          shouldDownloadVideos: false,
+          shouldDownloadCovers: false,
+          shouldDownloadAvatars: false,
+          shouldDownloadSlideshowImages: false,
+          shouldDownloadMusicCovers: false,
+        }),
       });
+      const runId = run.data.id;
 
       const started = Date.now();
-      let datasetId = null;
+      let info;
       while (true) {
-        await sleep(4000);
-        const s = await api(`/api/comments?runId=${encodeURIComponent(runId)}`);
+        await sleep(5000);
+        info = (await apify(`/actor-runs/${runId}`, token)).data;
         const secs = Math.round((Date.now() - started) / 1000);
-        if (s.status === "SUCCEEDED") { datasetId = s.datasetId; break; }
-        if (["FAILED", "ABORTED", "TIMED-OUT"].includes(s.status)) throw new Error(`Extragerea a eșuat (${s.status}). Încearcă din nou sau folosește varianta manuală.`);
-        if (secs > 900) throw new Error("Durează prea mult. Încearcă din nou sau folosește varianta manuală.");
-        setStatus(`Adun comentariile de pe TikTok (${secs}s)`, "", true);
+        if (info.status === "SUCCEEDED") break;
+        if (["FAILED", "ABORTED", "TIMED-OUT"].includes(info.status)) throw new Error(`Extragerea a eșuat (${info.status}). Încearcă din nou sau folosește varianta manuală.`);
+        if (secs > 1800) throw new Error("Durează prea mult. Verifică rularea în Apify Console sau folosește varianta manuală.");
+        setStatus(`Adun comentariile de pe TikTok (${Math.floor(secs / 60)}m ${secs % 60}s)`, "", true);
       }
 
+      const videos = await apify(`/datasets/${info.defaultDatasetId}/items?clean=true&format=json`, token);
+      const video = (Array.isArray(videos) ? videos : []).find((v) => datasetIdFrom(v)) || (videos || [])[0];
+      if (video && video.errorCode) throw new Error(`TikTok: ${video.error || video.errorCode}`);
+      const commentsDs = datasetIdFrom(video);
+      if (!commentsDs) throw new Error("Apify n-a returnat lista de comentarii pentru acest video. Verifică linkul sau folosește varianta manuală.");
+
       const all = [];
-      let offset = 0;
-      while (offset !== null) {
+      for (let offset = 0; ; offset += 1000) {
         setStatus(`Descarc comentariile (${all.length.toLocaleString("ro-RO")})`, "", true);
-        const page = await api(`/api/comments?datasetId=${encodeURIComponent(datasetId)}&offset=${offset}`);
-        all.push(...page.items);
-        offset = page.nextOffset;
+        const page = await apify(`/datasets/${commentsDs}/items?clean=true&format=json&offset=${offset}&limit=1000`, token);
+        const list = Array.isArray(page) ? page : [];
+        all.push(...list);
+        if (list.length < 1000) break;
       }
       loadComments(all, "de pe TikTok");
     } catch (err) {

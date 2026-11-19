@@ -1,18 +1,20 @@
-# Giveaway TikTok – Anne Maica
+# Giveaway TikTok – Anne Maica (@anne.maica)
 
-Pagină cu două secțiuni:
-1. **Extrage comentariile** – lipești linkul TikTok; serverul pornește un scraper Apify și aduce toate comentariile (sau le încarci manual: text, CSV, JSON).
-2. **Alege câștigătorul** – ruletă animată; câștigătorul e ales cu `crypto.getRandomValues` dintre **toți** participanții, apoi banda se oprește pe el. „Re-extrage” scoate câștigătorul din listă și pornește din nou.
+Site static (GitHub Pages), două secțiuni:
+1. **Extrage comentariile** – lipești linkul TikTok; pagina pornește actorul Apify `clockworks/tiktok-scraper` direct din browser și aduce comentariile. Alternativ: încărcare manuală (text, CSV, JSON).
+2. **Alege câștigătorul** – ruletă animată; câștigătorul e ales cu `crypto.getRandomValues` dintre **toți** participanții, iar banda se oprește pe el. „Re-extrage” scoate câștigătorul din listă și pornește din nou.
 
-## Publicare pe Vercel
-1. Fă cont pe https://apify.com → Settings → API & Integrations → copiază **API token**.
-2. Pe https://vercel.com → Add New Project → importă repository-ul.
-3. La **Root Directory** alege `giveaway`. Framework: *Other*. Fără build command.
-4. La **Environment Variables** adaugă `APIFY_TOKEN` = tokenul tău. Opțional `APIFY_ACTOR` (implicit `clockworks~tiktok-comments-scraper`).
-5. Deploy.
+## Cheia Apify – important
+GitHub Pages nu are server, deci cheia **nu** stă în cod (oricine ar putea s-o citească din sursa paginii și ți-ar consuma creditul). O introduci în pagină, la „🔑 Cheia Apify”; rămâne doar în browserul tău (localStorage, dacă bifezi „Ține minte”) și e trimisă doar la `api.apify.com`.
 
-## Poza de fundal
-Pune imaginea în `giveaway/assets/anne.png` (ideal PNG cu fundal transparent, portret). Dacă lipsește, pagina funcționează fără ea.
+- Nu introduce cheia pe calculatoare străine. Dacă ai făcut-o, debifează „Ține minte” sau regenerează tokenul în Apify.
+- Recomandat: în Apify Console creează un token separat doar pentru acest giveaway și șterge-l după.
 
-## Cost
-Plata se face pe comentarii extrase, prin Apify. Verifică prețul actual pe pagina scraperului înainte de giveaway.
+## Publicare pe GitHub Pages
+1. Repository-ul trebuie să fie **public** (Pages pe repo privat cere plan GitHub plătit).
+2. Settings → Pages → **Source: GitHub Actions**.
+3. Unește (merge) branch-ul în `main`. Workflow-ul `.github/workflows/pages.yml` publică automat doar folderul `giveaway/`.
+4. Linkul apare în Settings → Pages (de forma `https://<utilizator>.github.io/<repo>/`).
+
+## Cost (verificat pe pagina de prețuri Apify, nov. 2026)
+~0,0037 $ pentru video + ~1,25 $ / 1.000 comentarii. Limita din câmpul „Număr maxim de comentarii” plafonează costul.
